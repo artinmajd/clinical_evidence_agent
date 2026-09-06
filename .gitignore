@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Environment / secrets
+.env
+*.local
+
+# OS
+.DS_Store
+
+# Data (corpus can be large; keep it out of git, document how to regenerate)
+data/raw/
+data/processed/
+*.db
+*.sqlite3
