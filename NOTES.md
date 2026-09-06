@@ -73,3 +73,19 @@ reach clinicaltrials.gov directly (both got no connection at all) - some
 environments just don't have outbound access to arbitrary domains. Browser
 requests work fine. Worth remembering if a script run from the terminal
 later mysteriously can't connect either.
+
+## Concept: clinical trial phases and endpoints
+
+- **Phase 1** — small (dozens), safety/dosage focused, not testing whether it works yet.
+- **Phase 2** — bigger (dozens to ~hundreds), starts testing effectiveness, still watching safety.
+- **Phase 3** — large (hundreds to thousands), randomized controlled trial vs. placebo/standard
+  treatment. This is the one regulators use to approve a drug, and the one this project cares
+  about most when someone asks "what were the phase 3 results."
+- **Phase 4** — post-approval, monitors long-term effects in the general population.
+- Combined labels like `["PHASE2", "PHASE3"]` are real: some trials deliberately blend the two
+  ("seamless" design) instead of running them separately.
+
+**Endpoint / outcome measure** = the specific thing a trial was designed to measure to judge
+success (e.g. "change in blood glucose at 6 months"). **Primary** endpoint = the main one the
+trial is judged on. **Secondary** endpoints = additional things measured alongside it. Lives in
+`outcomesModule.primaryOutcomes` / `.secondaryOutcomes` in the API response.
