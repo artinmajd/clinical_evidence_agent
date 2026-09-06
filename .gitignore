@@ -17,3 +17,7 @@ data/raw/
 data/processed/
 *.db
 *.sqlite3
+
+# Personal working notes (not part of the portfolio code)
+NOTES.md
+PROGRESS.md
