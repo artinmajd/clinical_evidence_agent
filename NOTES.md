@@ -43,3 +43,33 @@ can be answered from protocolSection alone, but "what was the actual effect
 size" needs resultsSection, which not every trial has. Worth checking how
 many trials in our corpus actually have results before promising the agent
 can answer outcome-number questions for all of them.
+
+## Debugging note: `filter.phase` is not real (found 2026-09-06)
+
+Several blog posts and even "official-looking" third-party API reference
+docs claim `filter.phase` exists. It does not; the live API rejects it with
+`` `filter.phase` is unknown parameter``. Lesson: for any API, trust the
+API's own response over secondhand docs, especially anything that reads
+like it was AI-generated and never actually run against the live endpoint.
+
+**What actually works:** phase filtering goes through the Essie search
+syntax, embedded in `query.term`:
+```
+query.term=AREA[Phase]PHASE3
+```
+(URL-encoded: `AREA%5BPhase%5DPHASE3`)
+
+**Important nuance:** this matches trials where PHASE3 appears anywhere in
+the `phases` array, not an exact match. A combined Phase 2/3 trial
+(`"phases": ["PHASE2", "PHASE3"]`) matches too. Decide later whether the
+corpus should include those or only pure single-phase-3 trials (can filter
+client-side on the exact array value either way).
+
+**Handy field:** each study has a top-level `"hasResults": true/false` flag,
+so no need to check for the presence of `resultsSection` manually.
+
+Neither this session's cloud sandbox nor a shell on Artin's own Mac could
+reach clinicaltrials.gov directly (both got no connection at all) - some
+environments just don't have outbound access to arbitrary domains. Browser
+requests work fine. Worth remembering if a script run from the terminal
+later mysteriously can't connect either.
