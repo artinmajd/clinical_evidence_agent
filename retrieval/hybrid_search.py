@@ -34,15 +34,19 @@ def semantic_search(cur, query_embedding, top_k):
 
 
 def keyword_search(cur, query_text, top_k):
+    # OR the words together instead of the default AND, so a chunk matching
+    # some meaningful words still surfaces rather than requiring every word
+    # (after stemming) to be present in the same row.
+    or_query_text = " or ".join(query_text.split())
     cur.execute(
         """
         select id
         from trial_chunks
-        where chunk_text_tsv @@ plainto_tsquery('english', %s)
-        order by ts_rank(chunk_text_tsv, plainto_tsquery('english', %s)) desc
+        where chunk_text_tsv @@ websearch_to_tsquery('english', %s)
+        order by ts_rank(chunk_text_tsv, websearch_to_tsquery('english', %s)) desc
         limit %s
         """,
-        (query_text, query_text, top_k),
+        (or_query_text, or_query_text, top_k),
     )
     return [row[0] for row in cur.fetchall()]
 
