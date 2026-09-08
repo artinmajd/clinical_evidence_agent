@@ -3,11 +3,12 @@ import os
 import psycopg2
 from dotenv import load_dotenv
 from pgvector.psycopg2 import register_vector
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import CrossEncoder, SentenceTransformer
 
 load_dotenv()
 
 MODEL_NAME = "NeuML/pubmedbert-base-embeddings"
+RERANK_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 TOP_K = 10
 RRF_K = 60
 
@@ -67,6 +68,21 @@ def fetch_chunk(cur, chunk_id):
     return cur.fetchone()
 
 
+def rerank(query, candidates):
+    # A cross-encoder reads the query and a candidate together and outputs a
+    # single relevance score, unlike the bi-encoder above which embeds them
+    # separately. It's more accurate but far slower, so it only runs on the
+    # small shortlist RRF already narrowed down, not the full corpus.
+    model = CrossEncoder(RERANK_MODEL_NAME)
+    pairs = [(query, chunk_text) for _, _, chunk_text in candidates]
+    scores = model.predict(pairs)
+    ranked = sorted(zip(candidates, scores), key=lambda pair: pair[1], reverse=True)
+    return [
+        (chunk_id, nct_id, chunk_text, score)
+        for (chunk_id, nct_id, chunk_text), score in ranked
+    ]
+
+
 def main():
     question = "What were the primary endpoints in phase 3 obesity trials?"
 
@@ -81,11 +97,17 @@ def main():
     keyword_ids = keyword_search(cur, question, TOP_K)
     fused = reciprocal_rank_fusion([semantic_ids, keyword_ids])
 
+    candidates = []
+    for chunk_id, _ in fused:
+        nct_id, chunk_text = fetch_chunk(cur, chunk_id)
+        candidates.append((chunk_id, nct_id, chunk_text))
+
+    reranked = rerank(question, candidates)
+
     print(f"Question: {question}\n")
     print(f"Semantic hits: {len(semantic_ids)}, keyword hits: {len(keyword_ids)}\n")
 
-    for chunk_id, score in fused[:TOP_K]:
-        nct_id, chunk_text = fetch_chunk(cur, chunk_id)
+    for chunk_id, nct_id, chunk_text, score in reranked[:TOP_K]:
         print(f"[{score:.4f}] {nct_id}")
         print(chunk_text.splitlines()[0])
         print()
