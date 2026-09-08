@@ -45,3 +45,6 @@ urllib3==2.7.0
 psycopg2-binary
 python-dotenv
 pgvector
+openai
+fastapi
+uvicorn

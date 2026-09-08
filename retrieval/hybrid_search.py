@@ -21,6 +21,18 @@ CONNECTION = {
 }
 
 
+def load_models():
+    """Load the embedding and reranking models once, so callers (the API in
+    particular) don't pay model-load latency on every request."""
+    return SentenceTransformer(MODEL_NAME), CrossEncoder(RERANK_MODEL_NAME)
+
+
+def connect_db():
+    conn = psycopg2.connect(**CONNECTION)
+    register_vector(conn)
+    return conn
+
+
 def semantic_search(cur, query_embedding, top_k):
     cur.execute(
         """
@@ -68,12 +80,11 @@ def fetch_chunk(cur, chunk_id):
     return cur.fetchone()
 
 
-def rerank(query, candidates):
+def rerank(model, query, candidates):
     # A cross-encoder reads the query and a candidate together and outputs a
     # single relevance score, unlike the bi-encoder above which embeds them
     # separately. It's more accurate but far slower, so it only runs on the
     # small shortlist RRF already narrowed down, not the full corpus.
-    model = CrossEncoder(RERANK_MODEL_NAME)
     pairs = [(query, chunk_text) for _, _, chunk_text in candidates]
     scores = model.predict(pairs)
     ranked = sorted(zip(candidates, scores), key=lambda pair: pair[1], reverse=True)
@@ -83,18 +94,13 @@ def rerank(query, candidates):
     ]
 
 
-def main():
-    question = "What were the primary endpoints in phase 3 obesity trials?"
-
-    model = SentenceTransformer(MODEL_NAME)
-    query_embedding = model.encode(question)
-
-    conn = psycopg2.connect(**CONNECTION)
-    register_vector(conn)
-    cur = conn.cursor()
-
-    semantic_ids = semantic_search(cur, query_embedding, TOP_K)
-    keyword_ids = keyword_search(cur, question, TOP_K)
+def retrieve(cur, embed_model, rerank_model, question, top_k=TOP_K):
+    """Full retrieval pipeline: hybrid search (semantic + keyword), RRF
+    fusion, then cross-encoder rerank. Returns the top_k results as
+    (chunk_id, nct_id, chunk_text, rerank_score) tuples, best first."""
+    query_embedding = embed_model.encode(question)
+    semantic_ids = semantic_search(cur, query_embedding, top_k)
+    keyword_ids = keyword_search(cur, question, top_k)
     fused = reciprocal_rank_fusion([semantic_ids, keyword_ids])
 
     candidates = []
@@ -102,12 +108,20 @@ def main():
         nct_id, chunk_text = fetch_chunk(cur, chunk_id)
         candidates.append((chunk_id, nct_id, chunk_text))
 
-    reranked = rerank(question, candidates)
+    return rerank(rerank_model, question, candidates)[:top_k]
+
+
+def main():
+    question = "What were the primary endpoints in phase 3 obesity trials?"
+
+    embed_model, rerank_model = load_models()
+    conn = connect_db()
+    cur = conn.cursor()
+
+    results = retrieve(cur, embed_model, rerank_model, question)
 
     print(f"Question: {question}\n")
-    print(f"Semantic hits: {len(semantic_ids)}, keyword hits: {len(keyword_ids)}\n")
-
-    for chunk_id, nct_id, chunk_text, score in reranked[:TOP_K]:
+    for chunk_id, nct_id, chunk_text, score in results:
         print(f"[{score:.4f}] {nct_id}")
         print(chunk_text.splitlines()[0])
         print()
