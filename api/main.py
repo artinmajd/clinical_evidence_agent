@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from langfuse import get_client, observe
 from pydantic import BaseModel
 
 # Load .env before importing modules that read credentials at import time
@@ -24,6 +25,10 @@ async def lifespan(app: FastAPI):
     resources["rerank_model"] = rerank_model
     resources["conn"] = connect_db()
     yield
+    # Langfuse batches trace events and sends them in the background; flush
+    # forces any events still queued to be sent before the process exits, so
+    # a run right before shutdown isn't silently dropped.
+    get_client().flush()
     resources["conn"].close()
 
 
@@ -45,6 +50,7 @@ def health():
 
 
 @app.post("/ask", response_model=AskResponse)
+@observe()
 def ask(request: AskRequest):
     cur = resources["conn"].cursor()
     chunks = retrieve(cur, resources["embed_model"], resources["rerank_model"], request.question)

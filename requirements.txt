@@ -48,3 +48,4 @@ pgvector
 openai
 fastapi
 uvicorn
+langfuse

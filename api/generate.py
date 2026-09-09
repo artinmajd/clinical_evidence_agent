@@ -1,6 +1,7 @@
 import re
 
-from openai import OpenAI
+from langfuse import observe
+from langfuse.openai import OpenAI
 
 GENERATION_MODEL = "gpt-4o-mini"
 
@@ -19,6 +20,7 @@ def build_context(chunks):
     return "\n\n".join(f"[{nct_id}]\n{chunk_text}" for _, nct_id, chunk_text, _ in chunks)
 
 
+@observe()
 def generate_answer(question, chunks):
     """Call the LLM with the retrieved chunks as grounding context, and
     return (answer_text, citations). Citations are the NCT IDs the model

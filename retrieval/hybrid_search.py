@@ -3,6 +3,7 @@ import os
 import psycopg2
 from dotenv import load_dotenv
 from pgvector.psycopg2 import register_vector
+from langfuse import observe
 from sentence_transformers import CrossEncoder, SentenceTransformer
 
 load_dotenv()
@@ -94,6 +95,7 @@ def rerank(model, query, candidates):
     ]
 
 
+@observe()
 def retrieve(cur, embed_model, rerank_model, question, top_k=TOP_K):
     """Full retrieval pipeline: hybrid search (semantic + keyword), RRF
     fusion, then cross-encoder rerank. Returns the top_k results as
