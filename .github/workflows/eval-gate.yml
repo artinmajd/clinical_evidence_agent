@@ -31,7 +31,7 @@ jobs:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
-          LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
+          LANGFUSE_BASE_URL: ${{ secrets.LANGFUSE_BASE_URL }}
         run: python -m eval.run_eval --limit 12
 
       # Runs even if the eval step above failed (that's when you most want
