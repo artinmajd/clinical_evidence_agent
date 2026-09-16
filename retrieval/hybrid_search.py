@@ -89,8 +89,10 @@ def rerank(model, query, candidates):
     pairs = [(query, chunk_text) for _, _, chunk_text in candidates]
     scores = model.predict(pairs)
     ranked = sorted(zip(candidates, scores), key=lambda pair: pair[1], reverse=True)
+    # Cast to plain Python float: CrossEncoder returns numpy.float32, which
+    # LangGraph's Postgres checkpointer can't msgpack-serialize.
     return [
-        (chunk_id, nct_id, chunk_text, score)
+        (chunk_id, nct_id, chunk_text, float(score))
         for (chunk_id, nct_id, chunk_text), score in ranked
     ]
 
