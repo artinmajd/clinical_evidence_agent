@@ -43,9 +43,13 @@ typer==0.27.2
 typing_extensions==4.16.0
 urllib3==2.7.0
 psycopg2-binary
+psycopg[binary]
 python-dotenv
 pgvector
 openai
 fastapi
 uvicorn
 langfuse
+langgraph
+langgraph-checkpoint-postgres
+mcp<2
