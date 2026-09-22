@@ -10,6 +10,7 @@ from pydantic import BaseModel
 load_dotenv()
 
 from api.generate import generate_answer
+from guardrails.citation_check import check_citations
 from guardrails.prompt_injection import load_prompt_injection_scanner
 from retrieval.hybrid_search import connect_db, load_models, retrieve
 
@@ -44,6 +45,11 @@ class AskRequest(BaseModel):
 class AskResponse(BaseModel):
     answer: str
     citations: list[str]
+    # Populated by the citation guardrail (guardrails/citation_check.py).
+    # Always present, empty when clean - a flag for the caller to display
+    # or log, not something that blocks or alters the answer itself.
+    uncited_claims: list[str] = []
+    fabricated_citations: list[str] = []
 
 
 @app.get("/health")
@@ -61,4 +67,10 @@ def ask(request: AskRequest):
     cur.close()
 
     answer, citations = generate_answer(request.question, chunks)
-    return AskResponse(answer=answer, citations=citations)
+    issues = check_citations(answer, chunks)
+    return AskResponse(
+        answer=answer,
+        citations=citations,
+        uncited_claims=issues["uncited_sentences"],
+        fabricated_citations=issues["fabricated_citations"],
+    )

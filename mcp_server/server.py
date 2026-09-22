@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 
 from api.generate import generate_answer
+from guardrails.citation_check import check_citations
 from guardrails.prompt_injection import load_prompt_injection_scanner
 from retrieval.hybrid_search import connect_db, load_models, retrieve
 
@@ -193,8 +194,10 @@ def ask_clinical_question(params: AskClinicalQuestionInput, ctx: Context) -> str
     Returns:
         str: JSON-formatted string with the following schema:
         {
-            "answer": str,          # The generated answer, with inline [NCTxxxxxxxx] citations
-            "citations": [str]      # Sorted list of unique NCT IDs actually cited in the answer
+            "answer": str,               # The generated answer, with inline [NCTxxxxxxxx] citations
+            "citations": [str],          # Sorted list of unique NCT IDs actually cited in the answer
+            "uncited_claims": [str],     # Sentences making a claim with no citation at all (flag, not blocked)
+            "fabricated_citations": [str] # Cited NCT IDs that were never actually retrieved (flag, not blocked)
         }
 
     Examples:
@@ -211,7 +214,16 @@ def ask_clinical_question(params: AskClinicalQuestionInput, ctx: Context) -> str
         cur.close()
 
     answer, citations = generate_answer(params.question, chunks)
-    return json.dumps({"answer": answer, "citations": citations}, indent=2)
+    issues = check_citations(answer, chunks)
+    return json.dumps(
+        {
+            "answer": answer,
+            "citations": citations,
+            "uncited_claims": issues["uncited_sentences"],
+            "fabricated_citations": issues["fabricated_citations"],
+        },
+        indent=2,
+    )
 
 
 if __name__ == "__main__":

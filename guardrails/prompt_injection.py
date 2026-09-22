@@ -82,8 +82,21 @@ torch.backends.mps.is_available = _mps_unavailable
 from llm_guard.input_scanners import PromptInjection
 from llm_guard.input_scanners.prompt_injection import MatchType
 from llm_guard.model import Model
+from llm_guard.util import configure_logger
 
 logger = logging.getLogger(__name__)
+
+# llm_guard leaves structlog unconfigured by default, which means it has no
+# level filter at all - every scanner.scan() call logs a "No prompt
+# injection detected" line (and transformers logs its own "Device set to
+# use cpu" separately), all with no chunk-identifying detail, drowning out
+# anything useful in eval/CLI output. configure_logger() gives structlog
+# and stdlib logging a real INFO threshold (and pins transformers'/
+# presidio's own loggers to WARNING), which both silences that flood and
+# lets our own logger.info() calls in scan_chunks() below actually reach
+# the console - without it they'd be silently dropped by Python's default
+# WARNING-only root logger.
+configure_logger(log_level="INFO")
 
 # Same model as llm_guard's own default (V2_MODEL in
 # llm_guard/input_scanners/prompt_injection.py), reconstructed here only to
@@ -132,6 +145,13 @@ def scan_chunks(scanner, chunks):
         chunk_id, nct_id, chunk_text, score = chunk
         _, is_valid, risk_score = scanner.scan(chunk_text)
         if is_valid:
+            logger.info(
+                "Chunk %s (trial %s) passed prompt-injection scan "
+                "(risk_score=%.2f)",
+                chunk_id,
+                nct_id,
+                risk_score,
+            )
             clean.append(chunk)
         else:
             logger.warning(

@@ -13,6 +13,7 @@ load_dotenv()
 
 from api.generate import build_context, generate_answer
 from eval.judge import judge_answer
+from guardrails.citation_check import check_citations
 from guardrails.prompt_injection import load_prompt_injection_scanner
 from retrieval.hybrid_search import connect_db, load_models, retrieve
 
@@ -80,12 +81,19 @@ def evaluate_question(item, embed_model, rerank_model, scanner, conn):
     context = build_context(chunks)
     judged = judge_answer(item["question"], context, answer)
     metrics = citation_metrics(citations, item["expected_citations"])
+    guardrail_issues = check_citations(answer, chunks)
 
     # Attach the eval scores to this question's trace, so it's visible and
     # filterable in the Langfuse dashboard, not just in a local JSON file.
     langfuse.score_current_trace(name="faithfulness", value=judged["faithfulness"])
     langfuse.score_current_trace(name="completeness", value=judged["completeness"])
     langfuse.score_current_trace(name="citation_precision", value=metrics["citation_precision"])
+    # 1.0/0.0 rather than a bool: Langfuse scores are numeric, same as the
+    # three above - this is the fast deterministic guardrail's own signal,
+    # distinct from (and much cheaper than) the gpt-4o faithfulness score.
+    langfuse.score_current_trace(
+        name="citation_guardrail_clean", value=0.0 if guardrail_issues["has_issues"] else 1.0
+    )
 
     return {
         "id": item["id"],
@@ -94,6 +102,8 @@ def evaluate_question(item, embed_model, rerank_model, scanner, conn):
         "answer": answer,
         "citations": citations,
         "expected_citations": item["expected_citations"],
+        "uncited_claims": guardrail_issues["uncited_sentences"],
+        "fabricated_citations": guardrail_issues["fabricated_citations"],
         **metrics,
         **judged,
     }
@@ -131,11 +141,13 @@ def main():
     faithfulness_scores = [r["faithfulness"] for r in results]
     completeness_scores = [r["completeness"] for r in results]
     citation_hits = [r["citation_hit"] for r in results]
+    guardrail_flagged = sum(1 for r in results if r["uncited_claims"] or r["fabricated_citations"])
 
     print(f"\nRan {len(results)} questions")
     print(f"Median faithfulness:  {statistics.median(faithfulness_scores):.2f}")
     print(f"Median completeness:  {statistics.median(completeness_scores):.2f}")
     print(f"Citation hit rate:    {sum(citation_hits) / len(citation_hits):.2%}")
+    print(f"Guardrail flagged:    {guardrail_flagged}/{len(results)} (uncited claim or fabricated citation)")
 
     with open(RESULTS_PATH, "w") as f:
         json.dump(results, f, indent=2)

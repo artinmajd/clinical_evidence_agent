@@ -34,6 +34,7 @@ from langgraph.types import interrupt, Command
 load_dotenv()
 
 from api.generate import generate_answer
+from guardrails.citation_check import check_citations
 from guardrails.prompt_injection import load_prompt_injection_scanner
 from retrieval.hybrid_search import connect_db, load_models, retrieve
 
@@ -51,6 +52,7 @@ class AgentState(TypedDict):
     answer: str
     citations: list
     needs_review: bool
+    citation_issues: dict
 
 
 def build_graph(embed_model, rerank_model, scanner, conn, checkpointer=None):
@@ -74,17 +76,33 @@ def build_graph(embed_model, rerank_model, scanner, conn, checkpointer=None):
         return {"answer": answer, "citations": citations}
 
     def self_check_node(state: AgentState) -> dict:
-        # Minimal groundedness check: an answer with zero citations is
-        # flagged for human review instead of being returned as-is.
-        needs_review = len(state["citations"]) == 0
-        return {"needs_review": needs_review}
+        # Groundedness check: an answer with zero citations at all, OR one
+        # where the citation guardrail (guardrails/citation_check.py) found
+        # an uncited claim or a fabricated citation, is flagged for human
+        # review instead of being returned as-is. This is the one place in
+        # the app where that guardrail's "flag" actually pauses the graph -
+        # everywhere else (api/main.py, mcp_server/server.py, eval) it's a
+        # passive field in the response, because only this graph already
+        # has a human-approval mechanism (interrupt(), from Phase 3) for it
+        # to plug into.
+        citation_issues = check_citations(state["answer"], state["chunks"])
+        needs_review = len(state["citations"]) == 0 or citation_issues["has_issues"]
+        return {"needs_review": needs_review, "citation_issues": citation_issues}
 
     def human_review_node(state: AgentState) -> dict:
         # Pauses here. The dict passed to interrupt() is what the caller
         # sees while the graph is paused; whatever the caller later passes
         # to Command(resume=...) becomes this function's return value.
+        if len(state["citations"]) == 0:
+            reason = "No citations found - answer may not be grounded in the corpus."
+        elif state["citation_issues"]["fabricated_citations"]:
+            fabricated = ", ".join(state["citation_issues"]["fabricated_citations"])
+            reason = f"Possible fabricated citation(s), not found in retrieved chunks: {fabricated}"
+        else:
+            reason = "One or more claims in the answer have no citation."
+
         decision = interrupt({
-            "reason": "No citations found - answer may not be grounded in the corpus.",
+            "reason": reason,
             "question": state["question"],
             "draft_answer": state["answer"],
         })
