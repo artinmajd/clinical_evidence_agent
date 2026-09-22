@@ -13,6 +13,7 @@ load_dotenv()
 
 from api.generate import build_context, generate_answer
 from eval.judge import judge_answer
+from guardrails.prompt_injection import load_prompt_injection_scanner
 from retrieval.hybrid_search import connect_db, load_models, retrieve
 
 GOLDEN_SET_PATH = "eval/golden_set.jsonl"
@@ -64,10 +65,15 @@ def citation_metrics(actual_citations, expected_citations):
     return {"citation_precision": precision, "citation_hit": hit}
 
 
-@observe()
-def evaluate_question(item, embed_model, rerank_model, conn):
+# capture_input/capture_output=False: same reason as retrieve() in
+# retrieval/hybrid_search.py - this function receives loaded model objects
+# and a live db connection directly as arguments, which @observe()'s
+# default input capture would try to serialize on every call. See
+# CHALLENGES.md for the real crash that pattern caused elsewhere.
+@observe(capture_input=False, capture_output=False)
+def evaluate_question(item, embed_model, rerank_model, scanner, conn):
     cur = conn.cursor()
-    chunks = retrieve(cur, embed_model, rerank_model, item["question"])
+    chunks = retrieve(cur, embed_model, rerank_model, scanner, item["question"])
     cur.close()
 
     answer, citations = generate_answer(item["question"], chunks)
@@ -111,12 +117,13 @@ def main():
         golden_set = select_subset(golden_set, args.limit)
 
     embed_model, rerank_model = load_models()
+    scanner = load_prompt_injection_scanner()
     conn = connect_db()
 
     results = []
     for item in golden_set:
         print(f"Evaluating {item['id']}...")
-        results.append(evaluate_question(item, embed_model, rerank_model, conn))
+        results.append(evaluate_question(item, embed_model, rerank_model, scanner, conn))
 
     conn.close()
     langfuse.flush()

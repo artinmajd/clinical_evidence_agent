@@ -10,7 +10,7 @@ h11==0.16.0
 hf-xet==1.6.0
 httpcore==1.0.9
 httpx==0.28.1
-huggingface_hub==1.30.0
+huggingface_hub==0.36.2
 idna==3.19
 Jinja2==3.1.6
 joblib==1.6.0
@@ -24,21 +24,21 @@ numpy==2.5.3
 packaging==26.3
 Pygments==2.21.0
 PyYAML==6.0.3
-regex==2026.9.3
+regex==2024.11.6
 requests==2.34.2
 rich==15.0.0
 safetensors==0.8.0
 scikit-learn==1.9.0
 scipy==1.18.1
-sentence-transformers==6.0.1
+sentence-transformers==3.4.1
 setuptools==84.0.0
 shellingham==1.5.4
 sympy==1.14.0
 threadpoolctl==3.6.0
-tokenizers==0.23.2
+tokenizers==0.21.4
 torch==2.14.0
 tqdm==4.70.0
-transformers==5.16.1
+transformers==4.51.3
 typer==0.27.2
 typing_extensions==4.16.0
 urllib3==2.7.0
@@ -53,3 +53,6 @@ langfuse
 langgraph
 langgraph-checkpoint-postgres
 mcp<2
+# Pin llm-guard>=0.3.10 so pip does not backtrack to older releases that
+# hard-require xformers (no usable macOS arm64 wheels; Apple clang rejects -fopenmp).
+llm-guard==0.3.16

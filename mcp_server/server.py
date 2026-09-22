@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 
 from api.generate import generate_answer
+from guardrails.prompt_injection import load_prompt_injection_scanner
 from retrieval.hybrid_search import connect_db, load_models, retrieve
 
 DEFAULT_TOP_K = 10
@@ -47,9 +48,15 @@ async def app_lifespan(server: FastMCP):
     traffic, so there's no real benefit to threading blocking calls
     through asyncio here."""
     embed_model, rerank_model = load_models()
+    scanner = load_prompt_injection_scanner()
     conn = connect_db()
     try:
-        yield {"embed_model": embed_model, "rerank_model": rerank_model, "conn": conn}
+        yield {
+            "embed_model": embed_model,
+            "rerank_model": rerank_model,
+            "scanner": scanner,
+            "conn": conn,
+        }
     finally:
         conn.close()
 
@@ -145,6 +152,7 @@ def retrieve_hybrid(params: RetrieveHybridInput, ctx: Context) -> str:
             cur,
             resources["embed_model"],
             resources["rerank_model"],
+            resources["scanner"],
             params.question,
             top_k=params.top_k,
         )
@@ -197,7 +205,7 @@ def ask_clinical_question(params: AskClinicalQuestionInput, ctx: Context) -> str
     cur = resources["conn"].cursor()
     try:
         chunks = retrieve(
-            cur, resources["embed_model"], resources["rerank_model"], params.question
+            cur, resources["embed_model"], resources["rerank_model"], resources["scanner"], params.question
         )
     finally:
         cur.close()

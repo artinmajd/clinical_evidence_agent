@@ -10,6 +10,7 @@ from pydantic import BaseModel
 load_dotenv()
 
 from api.generate import generate_answer
+from guardrails.prompt_injection import load_prompt_injection_scanner
 from retrieval.hybrid_search import connect_db, load_models, retrieve
 
 resources = {}
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
     embed_model, rerank_model = load_models()
     resources["embed_model"] = embed_model
     resources["rerank_model"] = rerank_model
+    resources["scanner"] = load_prompt_injection_scanner()
     resources["conn"] = connect_db()
     yield
     # Langfuse batches trace events and sends them in the background; flush
@@ -53,7 +55,9 @@ def health():
 @observe()
 def ask(request: AskRequest):
     cur = resources["conn"].cursor()
-    chunks = retrieve(cur, resources["embed_model"], resources["rerank_model"], request.question)
+    chunks = retrieve(
+        cur, resources["embed_model"], resources["rerank_model"], resources["scanner"], request.question
+    )
     cur.close()
 
     answer, citations = generate_answer(request.question, chunks)

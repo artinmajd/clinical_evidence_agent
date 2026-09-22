@@ -34,6 +34,7 @@ from langgraph.types import interrupt, Command
 load_dotenv()
 
 from api.generate import generate_answer
+from guardrails.prompt_injection import load_prompt_injection_scanner
 from retrieval.hybrid_search import connect_db, load_models, retrieve
 
 DB_URI = (
@@ -52,7 +53,7 @@ class AgentState(TypedDict):
     needs_review: bool
 
 
-def build_graph(embed_model, rerank_model, conn, checkpointer=None):
+def build_graph(embed_model, rerank_model, scanner, conn, checkpointer=None):
     """Compile the agent graph, with the heavy resources (models, DB
     connection) bound via closures rather than stored in state - state gets
     checkpointed/serialized, and these objects aren't serializable."""
@@ -64,7 +65,7 @@ def build_graph(embed_model, rerank_model, conn, checkpointer=None):
 
     def retrieve_node(state: AgentState) -> dict:
         cur = conn.cursor()
-        chunks = retrieve(cur, embed_model, rerank_model, state["question"])
+        chunks = retrieve(cur, embed_model, rerank_model, scanner, state["question"])
         cur.close()
         return {"chunks": chunks}
 
@@ -156,11 +157,12 @@ def run_question(app, checkpointer, question, thread_id):
 
 def main():
     embed_model, rerank_model = load_models()
+    scanner = load_prompt_injection_scanner()
     conn = connect_db()
 
     with PostgresSaver.from_conn_string(DB_URI) as checkpointer:
         checkpointer.setup()
-        app = build_graph(embed_model, rerank_model, conn, checkpointer=checkpointer)
+        app = build_graph(embed_model, rerank_model, scanner, conn, checkpointer=checkpointer)
 
         # A well-covered question: expect this to sail straight through
         # respond without ever touching human_review.
