@@ -40,6 +40,12 @@ app = FastAPI(title="Clinical Evidence Research Agent", lifespan=lifespan)
 
 class AskRequest(BaseModel):
     question: str
+    # No default on purpose: retrieve() fails closed (guardrails/
+    # access_control.py raises on an unrecognized role rather than
+    # quietly falling back to the broadest access), and a required field
+    # here means the same thing at the API boundary - a caller has to say
+    # who they are, not get the widest access by omitting the field.
+    role: str
 
 
 class AskResponse(BaseModel):
@@ -62,7 +68,8 @@ def health():
 def ask(request: AskRequest):
     cur = resources["conn"].cursor()
     chunks = retrieve(
-        cur, resources["embed_model"], resources["rerank_model"], resources["scanner"], request.question
+        cur, resources["embed_model"], resources["rerank_model"], resources["scanner"],
+        request.question, role=request.role,
     )
     cur.close()
 

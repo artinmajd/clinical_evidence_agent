@@ -20,6 +20,7 @@ from pgvector.psycopg2 import register_vector
 from langfuse import observe
 from sentence_transformers import CrossEncoder, SentenceTransformer
 
+from guardrails.access_control import allowed_groups
 from guardrails.prompt_injection import load_prompt_injection_scanner, scan_chunks
 
 load_dotenv()
@@ -66,33 +67,45 @@ def connect_db():
     return conn
 
 
-def semantic_search(cur, query_embedding, top_k):
+def semantic_search(cur, query_embedding, top_k, groups):
+    # The permission_group filter sits in the WHERE clause of the query
+    # that actually fetches candidate rows - not applied afterward in
+    # Python on whatever came back. A row outside `groups` is never
+    # returned by Postgres in the first place, so it never enters
+    # ranking, reranking, or the LLM's context at all. That's what makes
+    # this "row-level" access control rather than a display-layer filter.
     cur.execute(
         """
         select id
         from trial_chunks
+        where permission_group = any(%s)
         order by embedding <=> %s::vector
         limit %s
         """,
-        (query_embedding, top_k),
+        (groups, query_embedding, top_k),
     )
     return [row[0] for row in cur.fetchall()]
 
 
-def keyword_search(cur, query_text, top_k):
+def keyword_search(cur, query_text, top_k, groups):
     # OR the words together instead of the default AND, so a chunk matching
     # some meaningful words still surfaces rather than requiring every word
-    # (after stemming) to be present in the same row.
+    # (after stemming) to be present in the same row. Same permission_group
+    # filter as semantic_search, and for the same reason: both are the two
+    # places rows enter the pipeline, so both are where access control has
+    # to be enforced - filtering only one of the two search paths would
+    # leave a real hole a restricted document could sneak through.
     or_query_text = " or ".join(query_text.split())
     cur.execute(
         """
         select id
         from trial_chunks
         where chunk_text_tsv @@ websearch_to_tsquery('english', %s)
+          and permission_group = any(%s)
         order by ts_rank(chunk_text_tsv, websearch_to_tsquery('english', %s)) desc
         limit %s
         """,
-        (or_query_text, or_query_text, top_k),
+        (or_query_text, groups, or_query_text, top_k),
     )
     return [row[0] for row in cur.fetchall()]
 
@@ -141,15 +154,22 @@ def rerank(model, query, candidates):
 # lightweight langfuse_context update - not by re-enabling blanket capture
 # of every argument this function happens to take.
 @observe(capture_input=False, capture_output=False)
-def retrieve(cur, embed_model, rerank_model, scanner, question, top_k=TOP_K):
+def retrieve(cur, embed_model, rerank_model, scanner, question, role, top_k=TOP_K):
     """Full retrieval pipeline: hybrid search (semantic + keyword), RRF
     fusion, cross-encoder rerank, then a prompt-injection scan that drops
     any chunk trying to smuggle instructions to the LLM. Returns the
     surviving top_k results as (chunk_id, nct_id, chunk_text, rerank_score)
-    tuples, best first - possibly fewer than top_k if the scan dropped any."""
+    tuples, best first - possibly fewer than top_k if the scan dropped any.
+
+    `role` decides which permission_group rows this call is even allowed
+    to see (guardrails/access_control.py) - resolved to a concrete list of
+    groups once, here, then passed into both search functions, rather than
+    letting a caller hand in their own group list directly. A caller
+    should be able to say who they are, not what they're allowed to see."""
+    groups = allowed_groups(role)
     query_embedding = embed_model.encode(question)
-    semantic_ids = semantic_search(cur, query_embedding, top_k)
-    keyword_ids = keyword_search(cur, question, top_k)
+    semantic_ids = semantic_search(cur, query_embedding, top_k, groups)
+    keyword_ids = keyword_search(cur, question, top_k, groups)
     fused = reciprocal_rank_fusion([semantic_ids, keyword_ids])
 
     candidates = []
@@ -169,7 +189,11 @@ def main():
     conn = connect_db()
     cur = conn.cursor()
 
-    results = retrieve(cur, embed_model, rerank_model, scanner, question)
+    # "clinician" here just keeps this self-test's behavior close to what
+    # it was before access control existed (broadest access, nothing
+    # filtered out) - see retrieval/test_access_control.py for the actual
+    # role-by-role verification.
+    results = retrieve(cur, embed_model, rerank_model, scanner, question, role="clinician")
 
     print(f"Question: {question}\n")
     for chunk_id, nct_id, chunk_text, score in results:

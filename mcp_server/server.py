@@ -17,7 +17,7 @@ serving remote clients over a network.
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from dotenv import load_dotenv
 from mcp.server.fastmcp import Context, FastMCP
@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 
 from api.generate import generate_answer
+from guardrails.access_control import check_access
 from guardrails.citation_check import check_citations
 from guardrails.prompt_injection import load_prompt_injection_scanner
 from retrieval.hybrid_search import connect_db, load_models, retrieve
@@ -85,6 +86,20 @@ class RetrieveHybridInput(BaseModel):
         ge=1,
         le=20,
     )
+    # Literal, not a free string: this hardcodes the same two role names as
+    # guardrails/access_control.py's ROLE_ENTITLEMENTS dict, which is a real
+    # duplication (one more place to update if a role is ever added or
+    # renamed) - accepted here because it lets the MCP client itself
+    # validate/autocomplete the field from the tool's schema, rather than
+    # only finding out about a bad role name after a call fails.
+    role: Literal["researcher", "clinician"] = Field(
+        ...,
+        description=(
+            "Synthetic caller identity, deciding which permission_group "
+            "trials are visible: 'researcher' sees public trials only; "
+            "'clinician' sees public and restricted trials."
+        ),
+    )
 
 
 class AskClinicalQuestionInput(BaseModel):
@@ -100,6 +115,67 @@ class AskClinicalQuestionInput(BaseModel):
         ),
         min_length=3,
         max_length=500,
+    )
+    role: Literal["researcher", "clinician"] = Field(
+        ...,
+        description=(
+            "Synthetic caller identity, deciding which permission_group "
+            "trials are visible: 'researcher' sees public trials only; "
+            "'clinician' sees public and restricted trials."
+        ),
+    )
+
+
+class CheckAccessInput(BaseModel):
+    """Input for asking whether a role can see a specific permission group,
+    independent of running any actual retrieval."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    role: Literal["researcher", "clinician"] = Field(
+        ..., description="Synthetic caller identity to check entitlements for."
+    )
+    permission_group: Literal["public", "restricted"] = Field(
+        ..., description="The permission_group value to check access against."
+    )
+
+
+@mcp.tool(
+    name="check_access",
+    annotations={
+        "title": "Check Synthetic Access Control Entitlement",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def check_access_tool(params: CheckAccessInput, ctx: Context) -> str:
+    """Check whether a synthetic role is entitled to see a given
+    permission group, without running any retrieval.
+
+    This calls the exact same guardrails.access_control.check_access()
+    function that retrieve_hybrid/ask_clinical_question apply internally
+    to every row they consider - exposed on its own so a caller (or a
+    human auditing the system) can ask "is X allowed to see Y" directly,
+    the same tool named in this project's original architecture plan.
+
+    Args:
+        params (CheckAccessInput): Validated input containing:
+            - role (str): 'researcher' or 'clinician'
+            - permission_group (str): 'public' or 'restricted'
+
+    Returns:
+        str: JSON-formatted string: {"role": str, "permission_group": str, "allowed": bool}
+
+    Examples:
+        - Use when: "Can a researcher see a restricted trial?" -> a direct entitlement check
+        - Don't use when: you actually want to retrieve trials (use retrieve_hybrid/ask_clinical_question instead)
+    """
+    allowed = check_access(params.role, params.permission_group)
+    return json.dumps(
+        {"role": params.role, "permission_group": params.permission_group, "allowed": allowed},
+        indent=2,
     )
 
 
@@ -128,6 +204,7 @@ def retrieve_hybrid(params: RetrieveHybridInput, ctx: Context) -> str:
         params (RetrieveHybridInput): Validated input containing:
             - question (str): The natural-language question to search for
             - top_k (Optional[int]): Max number of excerpts to return (1-20, default 10)
+            - role (str): 'researcher' or 'clinician' - decides which permission_group trials are visible
 
     Returns:
         str: JSON-formatted string with the following schema:
@@ -155,6 +232,7 @@ def retrieve_hybrid(params: RetrieveHybridInput, ctx: Context) -> str:
             resources["rerank_model"],
             resources["scanner"],
             params.question,
+            role=params.role,
             top_k=params.top_k,
         )
     finally:
@@ -190,6 +268,7 @@ def ask_clinical_question(params: AskClinicalQuestionInput, ctx: Context) -> str
     Args:
         params (AskClinicalQuestionInput): Validated input containing:
             - question (str): The natural-language question to answer
+            - role (str): 'researcher' or 'clinician' - decides which permission_group trials are visible
 
     Returns:
         str: JSON-formatted string with the following schema:
@@ -208,7 +287,8 @@ def ask_clinical_question(params: AskClinicalQuestionInput, ctx: Context) -> str
     cur = resources["conn"].cursor()
     try:
         chunks = retrieve(
-            cur, resources["embed_model"], resources["rerank_model"], resources["scanner"], params.question
+            cur, resources["embed_model"], resources["rerank_model"], resources["scanner"],
+            params.question, role=params.role,
         )
     finally:
         cur.close()

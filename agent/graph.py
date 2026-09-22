@@ -48,6 +48,7 @@ DB_URI = (
 
 class AgentState(TypedDict):
     question: str
+    role: str
     chunks: list
     answer: str
     citations: list
@@ -67,7 +68,7 @@ def build_graph(embed_model, rerank_model, scanner, conn, checkpointer=None):
 
     def retrieve_node(state: AgentState) -> dict:
         cur = conn.cursor()
-        chunks = retrieve(cur, embed_model, rerank_model, scanner, state["question"])
+        chunks = retrieve(cur, embed_model, rerank_model, scanner, state["question"], role=state["role"])
         cur.close()
         return {"chunks": chunks}
 
@@ -138,7 +139,7 @@ def build_graph(embed_model, rerank_model, scanner, conn, checkpointer=None):
     return graph.compile(checkpointer=checkpointer)
 
 
-def run_question(app, checkpointer, question, thread_id):
+def run_question(app, checkpointer, question, role, thread_id):
     """Run one question through the graph, pausing for a real terminal
     input if the graph interrupts for human review.
 
@@ -149,7 +150,7 @@ def run_question(app, checkpointer, question, thread_id):
     keeping the checkpoint tables holding only threads that are still
     genuinely paused/in-flight."""
     config = {"configurable": {"thread_id": thread_id}}
-    result = app.invoke({"question": question}, config=config)
+    result = app.invoke({"question": question, "role": role}, config=config)
 
     if "__interrupt__" in result:
         payload = result["__interrupt__"][0].value
@@ -183,11 +184,15 @@ def main():
         app = build_graph(embed_model, rerank_model, scanner, conn, checkpointer=checkpointer)
 
         # A well-covered question: expect this to sail straight through
-        # respond without ever touching human_review.
+        # respond without ever touching human_review. "clinician" (broadest
+        # access) keeps this demo's behavior close to what it was before
+        # Step 3 - see retrieval/test_access_control.py for the actual
+        # role-by-role access verification.
         run_question(
             app,
             checkpointer,
             "What were the primary endpoints of the trials studying semaglutide?",
+            role="clinician",
             thread_id="demo-good",
         )
 
@@ -198,6 +203,7 @@ def main():
             app,
             checkpointer,
             "What is the standard treatment protocol for the common cold?",
+            role="clinician",
             thread_id="demo-risky",
         )
 

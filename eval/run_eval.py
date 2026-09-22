@@ -72,9 +72,9 @@ def citation_metrics(actual_citations, expected_citations):
 # default input capture would try to serialize on every call. See
 # CHALLENGES.md for the real crash that pattern caused elsewhere.
 @observe(capture_input=False, capture_output=False)
-def evaluate_question(item, embed_model, rerank_model, scanner, conn):
+def evaluate_question(item, embed_model, rerank_model, scanner, conn, role):
     cur = conn.cursor()
-    chunks = retrieve(cur, embed_model, rerank_model, scanner, item["question"])
+    chunks = retrieve(cur, embed_model, rerank_model, scanner, item["question"], role=role)
     cur.close()
 
     answer, citations = generate_answer(item["question"], chunks)
@@ -120,6 +120,21 @@ def main():
         "--min-faithfulness", type=float, default=DEFAULT_MIN_FAITHFULNESS,
         help=f"Exit with a non-zero status if median faithfulness drops below this (default: {DEFAULT_MIN_FAITHFULNESS}).",
     )
+    # Default "clinician" (broadest access, public + restricted) rather
+    # than "researcher": this eval measures answer quality (faithfulness,
+    # completeness, citation correctness) against a golden set built
+    # before permission groups existed, so its expected_citations can
+    # legitimately point at a "restricted"-tagged trial. Running as
+    # "researcher" here would silently start failing/degrading those
+    # cases for a reason that has nothing to do with answer quality
+    # regressing - a false signal on the CI faithfulness gate. Actually
+    # verifying that "researcher" really can't see restricted trials is
+    # retrieval/test_access_control.py's job, not this file's - that check
+    # doesn't need the golden set or any LLM call at all.
+    parser.add_argument(
+        "--role", default="clinician", choices=["researcher", "clinician"],
+        help="Synthetic caller role to evaluate as (default: clinician, the broadest access).",
+    )
     args = parser.parse_args()
 
     golden_set = load_golden_set()
@@ -133,7 +148,7 @@ def main():
     results = []
     for item in golden_set:
         print(f"Evaluating {item['id']}...")
-        results.append(evaluate_question(item, embed_model, rerank_model, scanner, conn))
+        results.append(evaluate_question(item, embed_model, rerank_model, scanner, conn, args.role))
 
     conn.close()
     langfuse.flush()
