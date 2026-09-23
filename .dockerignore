@@ -1,0 +1,21 @@
+# Never bake these into the image. Two different reasons:
+# - .venv, __pycache__, .git, data/, db, guardrails/__pycache__ etc.:
+#   pure bloat - Docker installs its own dependencies fresh inside the
+#   box (see the Dockerfile's pip install step), so your Mac's local
+#   venv has no business being copied in too.
+# - .env: this holds real secrets (Supabase password, OpenAI key,
+#   Langfuse keys). An image is meant to be something you could push to
+#   a registry and hand to someone else (or to Kubernetes) - baking
+#   secrets into it would mean anyone who ever gets a copy of the image
+#   has your credentials. Secrets get handed to a running container as
+#   environment variables at *run time* instead (see the docker run
+#   command), never copied in at *build time*.
+.venv/
+__pycache__/
+*.pyc
+.git/
+.github/
+.env
+data/
+*.md
+.DS_Store
