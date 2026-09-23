@@ -23,6 +23,19 @@ WORKDIR /app
 # re-download and reinstall every package again - only the fast "copy
 # code" step reruns pip install stays cached.
 COPY requirements.txt .
+
+# Install CPU-only PyTorch from its own dedicated index, before the
+# general requirements install below. The default PyPI index resolves
+# `torch` to a build bundling NVIDIA's CUDA runtime libraries for GPU
+# support - dead weight on an app that (per this project's own design,
+# see NOTES.md) forces every model onto CPU everywhere and never touches
+# a GPU. Confirmed by measurement, not guessing: those libraries alone
+# added over 3GB to this image before this line existed. Pinning the
+# same version here as requirements.txt lists means the next step below
+# sees torch already satisfied and won't reinstall/overwrite it with the
+# GPU build.
+RUN pip install --no-cache-dir torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Now copy the actual application code into the box. This copies from
