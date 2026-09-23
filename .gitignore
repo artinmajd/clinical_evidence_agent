@@ -25,3 +25,12 @@ PROGRESS.md
 # Project challenges log (personal, not part of the portfolio code)
 CHALLENGES.md
 eval/last_run.json
+
+# Terraform local state and downloaded provider binaries - state can contain
+# resource details, providers are large and machine-specific; both are
+# meant to be regenerated locally (state lives in this project only since
+# we destroy the infra after each test, no remote backend needed).
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/crash.log
