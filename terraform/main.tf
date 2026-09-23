@@ -44,3 +44,37 @@ resource "google_container_cluster" "primary" {
   # protection would just get in our own way at teardown time.
   deletion_protection = false
 }
+
+# The Artifact Registry API is a Google Cloud service like any other - it
+# has to be explicitly turned on for this project before we can create a
+# repository in it, the same way we manually ran `gcloud services enable`
+# for the Kubernetes Engine and Compute Engine APIs earlier. Doing it here
+# instead means it's captured in code rather than a one-off command we'd
+# have to remember to redo if this project were ever set up from scratch
+# on a different GCP project.
+resource "google_project_service" "artifact_registry" {
+  service = "artifactregistry.googleapis.com"
+
+  # Don't turn the API itself back off if we ever destroy this resource -
+  # disabling an entire API is a much bigger, more disruptive action than
+  # we want tied to a routine `terraform destroy` of just our own repository.
+  disable_on_destroy = false
+}
+
+# The actual registry repository - the "storage location" we've been
+# discussing that holds our built Docker images so GKE's nodes can pull
+# them. `format = "DOCKER"` tells Artifact Registry to speak the standard
+# `docker push`/`docker pull` protocol (it also supports other formats,
+# like Python packages or npm, which we don't need here). Placed in the
+# same region as the cluster deliberately - pulling an image from the
+# same region is both faster and avoids cross-region network charges.
+resource "google_artifact_registry_repository" "images" {
+  location      = "us-central1"
+  repository_id = "clinical-evidence-agent"
+  format        = "DOCKER"
+
+  # Terraform can't create this repository until the API above is
+  # actually enabled - depends_on makes that ordering explicit rather
+  # than relying on Terraform to guess it from the resources' fields.
+  depends_on = [google_project_service.artifact_registry]
+}

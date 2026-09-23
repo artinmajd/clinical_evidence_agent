@@ -1,0 +1,73 @@
+# A Deployment is the declarative instruction we covered conceptually
+# earlier: "keep this many copies of this container running." Kubernetes
+# continuously compares this description against reality and takes
+# whatever action is needed to match it - creating pods if too few exist,
+# restarting one if it crashes, and so on. You never directly tell
+# Kubernetes "start a pod"; you describe the end state you want, and it
+# handles getting there and staying there.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clinical-evidence-agent
+spec:
+  # How many identical copies (pods) of the app should be running at
+  # once. Two, not one, so that if a single pod crashes or a node is
+  # replaced mid-request, the other keeps serving traffic without any
+  # downtime - the self-healing behavior only means something if there's
+  # more than one copy to fail over to.
+  replicas: 2
+
+  # This is how the Deployment finds *its own* pods among everything else
+  # potentially running in the cluster - it must exactly match the labels
+  # given to the pod template below.
+  selector:
+    matchLabels:
+      app: clinical-evidence-agent
+
+  # The template below isn't a pod itself - it's the exact blueprint the
+  # Deployment stamps out copies from, `replicas` times.
+  template:
+    metadata:
+      labels:
+        app: clinical-evidence-agent
+    spec:
+      containers:
+        - name: clinical-evidence-agent
+          # This is the payoff of everything we just did: instead of a
+          # locally-built image name, this points at the image sitting in
+          # Artifact Registry - the one place any node in this cluster
+          # can actually reach to pull it from.
+          image: us-central1-docker.pkg.dev/clinical-evidence-agent-2026/clinical-evidence-agent/clinical-evidence-agent:latest
+          ports:
+            - containerPort: 8000
+
+          # Autopilot requires every pod to explicitly state how much CPU
+          # and memory it needs - this is exactly what "billed per-pod-
+          # resource-requested" (from NOTES.md) is billing you for, and
+          # it's also what tells Autopilot how big a node to provision.
+          # "requests" is the guaranteed minimum reserved for this pod;
+          # "limits" is the hard ceiling it's not allowed to exceed.
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "2Gi"
+              # Autopilot defaults this to a small 1Gi if it's left
+              # unset - too little for this app, which downloads/caches
+              # the embedding model (NeuML/pubmedbert-base-embeddings)
+              # and other temp files into its writable layer at startup.
+              # Found this the hard way: the pod was silently evicted with
+              # "ephemeral local storage usage exceeds the total limit of
+              # containers 1Gi" - see CHALLENGES.md.
+              ephemeral-storage: "4Gi"
+            limits:
+              cpu: "1000m"
+              memory: "3Gi"
+              ephemeral-storage: "6Gi"
+
+          # Loaded the same way as the container run locally - from a
+          # .env-equivalent, except here it comes from a Kubernetes
+          # Secret (created separately, never committed to git) rather
+          # than a file on disk.
+          envFrom:
+            - secretRef:
+                name: clinical-evidence-agent-secrets

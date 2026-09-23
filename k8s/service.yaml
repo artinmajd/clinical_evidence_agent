@@ -1,0 +1,27 @@
+# A Service is the stable network "front door" concept from NOTES.md: pods
+# come and go (crash, restart, get moved to a new node), each getting a
+# new internal IP address every time - a Service gives callers one fixed
+# address that always finds a healthy pod behind it, regardless of which
+# specific pods currently exist.
+apiVersion: v1
+kind: Service
+metadata:
+  name: clinical-evidence-agent
+spec:
+  # This is what makes the Service reachable from outside the cluster
+  # entirely, not just from other pods inside it: Google Cloud
+  # provisions a real external Network Load Balancer (a separate, real,
+  # billed resource - $0.025/hour while it exists) with its own public IP
+  # address, which forwards incoming traffic to this Service.
+  type: LoadBalancer
+
+  # Exactly like the Deployment's selector: this is how the Service finds
+  # which pods to actually send traffic to. It must match the labels on
+  # the pod template in deployment.yaml - if these ever drift apart, the
+  # Service silently has zero pods to send traffic to.
+  selector:
+    app: clinical-evidence-agent
+
+  ports:
+    - port: 80          # the port callers hit on the Service's external IP
+      targetPort: 8000   # the port the container is actually listening on
