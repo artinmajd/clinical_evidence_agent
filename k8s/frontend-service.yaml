@@ -1,0 +1,16 @@
+# A second, separate LoadBalancer - its own public IP, its own small
+# real cost (~$0.025/hour while it exists, same as the backend's) -
+# because this is a genuinely separate thing an outside visitor loads
+# directly in their browser, not something only reachable from inside
+# the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: clinical-evidence-agent-frontend
+spec:
+  type: LoadBalancer
+  selector:
+    app: clinical-evidence-agent-frontend
+  ports:
+    - port: 80
+      targetPort: 80

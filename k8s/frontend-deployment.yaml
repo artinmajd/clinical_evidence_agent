@@ -1,0 +1,44 @@
+# Same Deployment concept as the backend's (see k8s/deployment.yaml) -
+# just a much lighter container, since this one is only nginx serving a
+# handful of small static files rather than loading ML models.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clinical-evidence-agent-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: clinical-evidence-agent-frontend
+  template:
+    metadata:
+      labels:
+        app: clinical-evidence-agent-frontend
+    spec:
+      containers:
+        - name: frontend
+          # Filled in by deploy.sh with the real Artifact Registry path
+          # before this file is applied.
+          image: FRONTEND_IMAGE_PLACEHOLDER
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              # A static file server needs very little - nowhere near
+              # what the backend's ML models require.
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "128Mi"
+          env:
+            # Read by docker-entrypoint.sh at container startup to
+            # generate config.js - see frontend/Dockerfile. This has to
+            # be the backend's *public* LoadBalancer address, not an
+            # internal cluster DNS name: this container only serves the
+            # JavaScript, but that JavaScript then runs in the end user's
+            # own browser, completely outside the cluster's private
+            # network - it can only reach the backend the same way any
+            # outside visitor would.
+            - name: API_URL
+              value: "BACKEND_URL_PLACEHOLDER"

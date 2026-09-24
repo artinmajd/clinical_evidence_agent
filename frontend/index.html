@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Clinical Evidence Agent</title>
+    <!-- Written at container startup by docker-entrypoint.sh, not baked in
+         at build time - this is what lets the same built image be pointed
+         at any backend URL without rebuilding it. Locally (npm run dev)
+         this file doesn't exist, which is fine: the script tag just fails
+         to load quietly and src/api.ts falls back to a Vite env var. -->
+    <script src="/config.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
