@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from langfuse import get_client, observe
 from pydantic import BaseModel
 
@@ -36,6 +37,25 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Clinical Evidence Research Agent", lifespan=lifespan)
+
+# Without this, the browser blocks every request the frontend (its own
+# origin - a different IP/LoadBalancer than this backend) tries to make
+# here: a cross-origin POST carrying a JSON body isn't a "simple request",
+# so the browser first sends an OPTIONS "preflight" asking permission, and
+# refuses to send the real request at all unless the server explicitly
+# allows it. Found this by testing the actual frontend code against a
+# local mock server before ever deploying it - see CHALLENGES.md.
+# allow_origins=["*"] is deliberately permissive: this API has no
+# cookie/session-based auth for CORS to protect (the "role" access control
+# is just a field in the request body, not a credential), so there's no
+# real security downside here - a production system with real user
+# sessions would instead list the frontend's specific origin(s).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class AskRequest(BaseModel):
