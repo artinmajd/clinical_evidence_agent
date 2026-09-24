@@ -59,4 +59,13 @@ EXPOSE 8000
 # to 0.0.0.0 ("any address") is what allows a request arriving from
 # *outside* the container - from your Mac's browser, or later from
 # Kubernetes - to actually reach the app inside it.
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+#
+# --workers 2: found the hard way (see CHALLENGES.md) that a single
+# worker process means one pod can only handle one request's CPU-bound
+# work (embedding, reranking) at a time - a load test showed 6 pods
+# still couldn't keep up with 8 concurrent users because of this, not
+# because of a lack of pods. Two worker processes per pod let each pod
+# handle two requests concurrently; kept modest (not higher) since more
+# workers means more copies of the loaded models in memory, each pod
+# already requesting 2Gi.
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

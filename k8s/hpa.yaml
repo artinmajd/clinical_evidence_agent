@@ -1,0 +1,34 @@
+# The Horizontal Pod Autoscaler (HPA): this is what turns "Kubernetes can
+# scale" from a concept into something that actually happens on its own.
+# It continuously compares real CPU usage against the target below and
+# adjusts the Deployment's replica count to try to hold that line - the
+# exact behavior we're about to demonstrate with a load test.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: clinical-evidence-agent
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: clinical-evidence-agent
+
+  # Never scale below 2 (the same floor we already run at - always at
+  # least one spare copy) or above 6 - a real ceiling matters on
+  # Autopilot specifically because every extra pod is extra billed
+  # compute; without a cap, a big enough load spike could scale
+  # indefinitely and get expensive.
+  minReplicas: 2
+  maxReplicas: 6
+
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # 500m was requested per pod (deployment.yaml); 50% of that is
+          # the threshold. Sustained usage above ~250m per pod is what
+          # triggers a scale-up; sustained usage well below it triggers
+          # a scale-down, always staying within the replica bounds above.
+          averageUtilization: 50

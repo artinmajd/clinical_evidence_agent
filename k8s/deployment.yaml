@@ -49,7 +49,14 @@ spec:
           # "limits" is the hard ceiling it's not allowed to exceed.
           resources:
             requests:
-              cpu: "500m"
+              # Bumped from 500m -> 1000m (half a core -> one full core)
+              # to test a real finding from the load test: adding a
+              # second uvicorn worker (see Dockerfile) barely changed
+              # throughput, because Kubernetes CPU limits cap the whole
+              # container, not per-process - two workers sharing one
+              # core don't get more total compute, just thinner slices
+              # of the same core. See CHALLENGES.md for the full story.
+              cpu: "1000m"
               memory: "2Gi"
               # Autopilot defaults this to a small 1Gi if it's left
               # unset - too little for this app, which downloads/caches
@@ -60,7 +67,7 @@ spec:
               # containers 1Gi" - see CHALLENGES.md.
               ephemeral-storage: "4Gi"
             limits:
-              cpu: "1000m"
+              cpu: "2000m"
               memory: "3Gi"
               ephemeral-storage: "6Gi"
 
