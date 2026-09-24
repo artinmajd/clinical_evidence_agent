@@ -81,7 +81,7 @@ fi
 echo "External IP: $EXTERNAL_IP"
 
 echo "==> Waiting for the app to actually answer (the LB needs a short warm-up after new pods appear)..."
-for _ in $(seq 1 12); do
+for _ in $(seq 1 24); do
   if curl -sf -m 10 "http://${EXTERNAL_IP}/health" >/dev/null 2>&1; then
     echo ""
     echo "App is up: http://${EXTERNAL_IP}/health"
